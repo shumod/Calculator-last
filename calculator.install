@@ -1,0 +1,793 @@
+<?php
+
+
+function calculator_install() {
+
+  // use get_t() to get the name of our localization function for translation
+  // during install, when t() is not available.
+  $t = get_t();
+
+  // Define the node type.
+  $node_example = array(
+    'type' => 'calculator',
+    'name' => $t('Calculator'),
+    'base' => 'node_content',
+    'description' => $t('Adds calculator settings'),
+    'body_label' => $t('Description')
+  );
+
+  // Complete the node type definition by setting any defaults not explicitly
+  // declared above.
+  // http://api.drupal.org/api/function/node_type_set_defaults/7
+  $content_type = node_type_set_defaults($node_example);
+  node_add_body_field($content_type);
+
+  // Save the content type
+  node_type_save($content_type);
+
+  // Check if we create content type or update.
+  $status = node_type_save($content_type);
+
+  // Replacement rule for the messages.
+  $t_args = array('%name' => $content_type->name);
+
+  if ($status == SAVED_UPDATED) { // update case
+    drupal_set_message($t('The content type %name has been updated.', $t_args));
+  }
+
+  elseif ($status == SAVED_NEW) { // create case
+    drupal_set_message($t('The content type %name has been added.', $t_args));
+    watchdog('node', 'Added content type %name.', $t_args, WATCHDOG_NOTICE, l($t('view'), 'admin/structure/types')); 
+  }
+
+  // create all the fields we are adding to our content type
+  foreach (_calculator_installed_fields() as $field) {
+    field_create_field($field);
+  }
+
+  // create all the instances for our fields
+  foreach (_calculator_installed_instances() as $instance) {
+    field_create_instance($instance);
+  }
+
+}
+
+function calculator_uninstall() {
+
+    // Gather all the example content that might have been created while this
+    // module was enabled.  Simple selects still use db_query().
+    // http://api.drupal.org/api/function/db_query/7
+    $sql = 'SELECT nid FROM {node} n WHERE n.type = :type';
+    $result = db_query($sql, array(':type' => 'calculator'));
+    $nids = array();
+    foreach ($result as $row) {
+        $nids[] = $row->nid;
+    }
+
+    // Delete all the nodes at once
+    // http://api.drupal.org/api/function/node_delete_multiple/7
+    node_delete_multiple($nids);
+
+    // Delete our content type
+    // http://api.drupal.org/api/function/node_type_delete/7
+    node_type_delete('calculator');
+}
+
+function _calculator_installed_fields(){
+    $fields = array();
+    
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'decimal_separator' => ',',
+      ),
+      'field_name' => 'field_gate_height',
+      'type' => 'number_float',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+    );
+
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'decimal_separator' => ',',
+      ),
+      'field_name' => 'field_gate_width',
+      'type' => 'number_float',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+    );
+
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'decimal_separator' => ',',
+      ),
+      'field_name' => 'field_max_gate_height',
+      'type' => 'number_float',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+    );
+
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'decimal_separator' => ',',
+      ),
+      'field_name' => 'field_max_gate_width',
+      'type' => 'number_float',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+    );
+
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'allowed_values' => array(
+          'gateswing' => 'Ворота распашные',
+          'gateroll' => 'Ворота откатные',
+          'wicket' => 'Калитки',
+        ),
+        'allowed_values_function' => '',
+      ),
+      'field_name' => 'field_calc_type',
+      'type' => 'list_text',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+    );
+
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'decimal_separator' => ',',
+      ),
+      'field_name' => 'field_aperture_height',
+      'type' => 'number_float',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+    );
+
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'decimal_separator' => ',',
+      ),
+      'field_name' => 'field_aperture_width',
+      'type' => 'number_float',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+    );
+
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'hide_blank_items' => 1,
+        'path' => '',
+      ),
+      'field_name' => 'field_additional',
+      'type' => 'field_collection',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '-1',
+    );
+
+    //create field collection
+
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'max_length' => '255',
+      ),
+      'field_name' => 'field_additional_name',
+      'type' => 'text',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+    );
+
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'allowed_values' => array(
+          'additional' => 'ДЭИ',
+          'automatic' => 'Автоматика',
+          'installation' => 'Установка ворот',
+          'settings' => 'Параметры ворот',
+        ),
+        'allowed_values_function' => '',
+      ),
+      'field_name' => 'field_additional_section',
+      'type' => 'list_text',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+    );
+
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'decimal_separator' => ',',
+      ),
+      'field_name' => 'field_additional_price',
+      'type' => 'number_float',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+    );
+
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'max_length' => '255',
+      ),
+      'field_name' => 'field_additional_teaser',
+      'type' => 'text',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+    );
+
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'uri_scheme' => 'public',
+        'default_image' => 0,
+      ),
+      'field_name' => 'field_additional_foto',
+      'type' => 'image',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+    );
+
+    $fields[] = array(
+      'translatable' => '0',
+      'settings' => array(
+        'allowed_values' => array(
+          'amount' => 'Нужно выбрать количество элементов с определённой ценой',
+          'presence' => 'Нужно выбрать есть ли этот элемент или нет. Цена за него просто добавляется в общую сумму',
+        ),
+        'allowed_values_function' => '',
+      ),
+      'field_name' => 'field_additional_type',
+      'type' => 'list_text',
+      'active' => '1',
+      'locked' => '0',
+      'cardinality' => '1',
+    );
+
+    return $fields;
+}
+
+function _calculator_installed_instances(){
+    $instances = array();
+
+    $instances[] = array(
+      'label' => 'Стандартная высота(cм)',
+      'widget' => array(
+        'weight' => '3',
+        'type' => 'number',
+        'active' => 0,
+        'settings' => array(),
+      ),
+      'settings' => array(
+        'min' => '',
+        'max' => '',
+        'prefix' => '',
+        'suffix' => '',
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'number_decimal',
+          'weight' => '1',
+          'settings' => array(
+            'thousand_separator' => ' ',
+            'decimal_separator' => ',',
+            'scale' => 2,
+            'prefix_suffix' => TRUE,
+          ),
+        ),
+        'teaser' => array(
+          'type' => 'hidden',
+          'label' => 'above',
+          'settings' => array(),
+          'weight' => 0,
+        ),
+      ),
+      'required' => 0,
+      'description' => 'Введите высоту ворот в сантиметрах',
+      'default_value' => array(
+        0 => array(
+          'value' => '400',
+        ),
+      ),
+      'field_name' => 'field_gate_height',
+      'entity_type' => 'node',
+      'bundle' => 'calculator',
+    );
+
+    $instances[] = array(
+      'label' => 'Стандартная ширина(см)',
+      'widget' => array(
+        'weight' => '4',
+        'type' => 'number',
+        'active' => 0,
+        'settings' => array(),
+      ),
+      'settings' => array(
+        'min' => '',
+        'max' => '',
+        'prefix' => '',
+        'suffix' => '',
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'number_decimal',
+          'weight' => '2',
+          'settings' => array(
+            'thousand_separator' => ' ',
+            'decimal_separator' => ',',
+            'scale' => 2,
+            'prefix_suffix' => TRUE,
+          ),
+        ),
+        'teaser' => array(
+          'type' => 'hidden',
+          'label' => 'above',
+          'settings' => array(),
+          'weight' => 0,
+        ),
+      ),
+      'required' => 0,
+      'description' => 'Введите ширину ворот в сантиметрах',
+      'default_value' => NULL,
+      'field_name' => 'field_gate_width',
+      'entity_type' => 'node',
+      'bundle' => 'calculator',
+    );
+
+    $instances[] = array(
+      'label' => 'Максимальная высота(см)',
+      'widget' => array(
+        'weight' => '5',
+        'type' => 'number',
+        'active' => 0,
+        'settings' => array(),
+      ),
+      'settings' => array(
+        'min' => '',
+        'max' => '1000',
+        'prefix' => '',
+        'suffix' => '',
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'number_decimal',
+          'weight' => '3',
+          'settings' => array(
+            'thousand_separator' => ' ',
+            'decimal_separator' => ',',
+            'scale' => 2,
+            'prefix_suffix' => TRUE,
+          ),
+        ),
+        'teaser' => array(
+          'type' => 'hidden',
+          'label' => 'above',
+          'settings' => array(),
+          'weight' => 0,
+        ),
+      ),
+      'required' => 0,
+      'description' => '',
+      'default_value' => NULL,
+      'field_name' => 'field_max_gate_height',
+      'entity_type' => 'node',
+      'bundle' => 'calculator',
+    );
+
+    $instances[] = array(
+      'label' => 'Максимальная ширина(см)',
+      'widget' => array(
+        'weight' => '6',
+        'type' => 'number',
+        'active' => 0,
+        'settings' => array(),
+      ),
+      'settings' => array(
+        'min' => '',
+        'max' => '1000',
+        'prefix' => '',
+        'suffix' => '',
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'number_decimal',
+          'weight' => '4',
+          'settings' => array(
+            'thousand_separator' => ' ',
+            'decimal_separator' => ',',
+            'scale' => 2,
+            'prefix_suffix' => TRUE,
+          ),
+        ),
+        'teaser' => array(
+          'type' => 'hidden',
+          'label' => 'above',
+          'settings' => array(),
+          'weight' => 0,
+        ),
+      ),
+      'required' => 0,
+      'description' => '',
+      'default_value' => NULL,
+      'field_name' => 'field_max_gate_width',
+      'entity_type' => 'node',
+      'bundle' => 'calculator',
+    );
+
+    $instances[] = array(
+      'label' => 'Тип калькулятора',
+      'widget' => array(
+        'weight' => '2',
+        'type' => 'options_buttons',
+        'active' => 1,
+        'settings' => array(),
+      ),
+      'settings' => array(
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'list_default',
+          'weight' => '5',
+          'settings' => array(),
+        ),
+        'teaser' => array(
+          'type' => 'hidden',
+          'label' => 'above',
+          'settings' => array(),
+          'weight' => 0,
+        ),
+      ),
+      'required' => 1,
+      'description' => '',
+      'default_value' => NULL,
+      'field_name' => 'field_calc_type',
+      'entity_type' => 'node',
+      'bundle' => 'calculator',
+    );
+
+    $instances[] = array(
+      'label' => 'Высота проёма(см)',
+      'widget' => array(
+        'weight' => '7',
+        'type' => 'number',
+        'active' => 0,
+        'settings' => array(),
+      ),
+      'settings' => array(
+        'min' => '',
+        'max' => '',
+        'prefix' => '',
+        'suffix' => '',
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'number_decimal',
+          'weight' => '6',
+          'settings' => array(
+            'thousand_separator' => ' ',
+            'decimal_separator' => ',',
+            'scale' => 2,
+            'prefix_suffix' => TRUE,
+          ),
+        ),
+        'teaser' => array(
+          'type' => 'hidden',
+          'label' => 'above',
+          'settings' => array(),
+          'weight' => 0,
+        ),
+      ),
+      'required' => 0,
+      'description' => '',
+      'default_value' => NULL,
+      'field_name' => 'field_aperture_height',
+      'entity_type' => 'node',
+      'bundle' => 'calculator',
+    );
+
+    $instances[] = array(
+      'label' => 'Ширина проёма',
+      'widget' => array(
+        'weight' => '8',
+        'type' => 'number',
+        'active' => 0,
+        'settings' => array(),
+      ),
+      'settings' => array(
+        'min' => '',
+        'max' => '',
+        'prefix' => '',
+        'suffix' => '',
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'number_decimal',
+          'weight' => '7',
+          'settings' => array(
+            'thousand_separator' => ' ',
+            'decimal_separator' => ',',
+            'scale' => 2,
+            'prefix_suffix' => TRUE,
+          ),
+        ),
+        'teaser' => array(
+          'type' => 'hidden',
+          'label' => 'above',
+          'settings' => array(),
+          'weight' => 0,
+        ),
+      ),
+      'required' => 0,
+      'description' => '',
+      'default_value' => NULL,
+      'field_name' => 'field_aperture_width',
+      'entity_type' => 'node',
+      'bundle' => 'calculator',
+    );
+
+    $instances[] = array(
+      'label' => 'Дополнительные элементы',
+      'widget' => array(
+        'weight' => '15',
+        'type' => 'field_collection_embed',
+        'active' => 0,
+        'settings' => array(),
+      ),
+      'settings' => array(
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'field_collection_view',
+          'settings' => array(
+            'edit' => 'Edit',
+            'delete' => 'Delete',
+            'add' => 'Add',
+            'description' => TRUE,
+            'view_mode' => 'full',
+          ),
+          'weight' => 14,
+        ),
+        'teaser' => array(
+          'type' => 'hidden',
+          'label' => 'above',
+          'settings' => array(),
+          'weight' => 0,
+        ),
+      ),
+      'required' => 0,
+      'description' => '',
+      'default_value' => NULL,
+      'field_name' => 'field_additional',
+      'entity_type' => 'node',
+      'bundle' => 'calculator',
+    );
+
+    //create instances of field collection
+
+    $instances[] = array(
+      'label' => 'Название доп элемента',
+      'widget' => array(
+        'weight' => '2',
+        'type' => 'text_textfield',
+        'active' => 1,
+        'settings' => array(
+          'size' => '60',
+        ),
+      ),
+      'settings' => array(
+        'text_processing' => '0',
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'text_default',
+          'settings' => array(),
+          'weight' => 0,
+        ),
+      ),
+      'required' => 0,
+      'description' => '',
+      'default_value' => NULL,
+      'field_name' => 'field_additional_name',
+      'entity_type' => 'field_collection_item',
+      'bundle' => 'field_additional',
+    );
+
+    $instances[] = array(
+      'label' => 'Раздел доп элемента',
+      'widget' => array(
+        'weight' => '4',
+        'type' => 'options_select',
+        'active' => 1,
+        'settings' => array(),
+      ),
+      'settings' => array(
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'list_default',
+          'settings' => array(),
+          'weight' => 1,
+        ),
+      ),
+      'required' => 0,
+      'description' => '',
+      'default_value' => NULL,
+      'field_name' => 'field_additional_section',
+      'entity_type' => 'field_collection_item',
+      'bundle' => 'field_additional',
+    );
+
+    $instances[] = array(
+      'label' => 'Цена доп элемента',
+      'widget' => array(
+        'weight' => '6',
+        'type' => 'number',
+        'active' => 0,
+        'settings' => array(),
+      ),
+      'settings' => array(
+        'min' => '',
+        'max' => '',
+        'prefix' => '',
+        'suffix' => '',
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'number_decimal',
+          'settings' => array(
+            'thousand_separator' => ' ',
+            'decimal_separator' => ',',
+            'scale' => 2,
+            'prefix_suffix' => TRUE,
+          ),
+          'weight' => 2,
+        ),
+      ),
+      'required' => 0,
+      'description' => '',
+      'default_value' => NULL,
+      'field_name' => 'field_additional_price',
+      'entity_type' => 'field_collection_item',
+      'bundle' => 'field_additional',
+    );
+
+    $instances[] = array(
+      'label' => 'Краткое описание доп элемента',
+      'widget' => array(
+        'weight' => '8',
+        'type' => 'text_textfield',
+        'active' => 1,
+        'settings' => array(
+          'size' => '60',
+        ),
+      ),
+      'settings' => array(
+        'text_processing' => '0',
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'text_default',
+          'settings' => array(),
+          'weight' => 3,
+        ),
+      ),
+      'required' => 0,
+      'description' => '',
+      'default_value' => NULL,
+      'field_name' => 'field_additional_teaser',
+      'entity_type' => 'field_collection_item',
+      'bundle' => 'field_additional',
+    );
+
+    $instances[] = array(
+      'label' => 'Фото доп элемента',
+      'widget' => array(
+        'weight' => '10',
+        'type' => 'image_image',
+        'active' => 1,
+        'settings' => array(
+          'progress_indicator' => 'throbber',
+          'preview_image_style' => 'thumbnail',
+        ),
+      ),
+      'settings' => array(
+        'file_directory' => '',
+        'file_extensions' => 'png gif jpg jpeg',
+        'max_filesize' => '',
+        'max_resolution' => '',
+        'min_resolution' => '',
+        'alt_field' => 0,
+        'title_field' => 0,
+        'default_image' => 0,
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'image',
+          'settings' => array(
+            'image_style' => '',
+            'image_link' => '',
+          ),
+          'weight' => 4,
+        ),
+      ),
+      'required' => 0,
+      'description' => '',
+      'field_name' => 'field_additional_foto',
+      'entity_type' => 'field_collection_item',
+      'bundle' => 'field_additional',
+    );
+
+    $instances[] = array(
+      'label' => 'Тип доп элемента',
+      'widget' => array(
+        'weight' => '11',
+        'type' => 'options_buttons',
+        'active' => 1,
+        'settings' => array(),
+      ),
+      'settings' => array(
+        'user_register_form' => FALSE,
+      ),
+      'display' => array(
+        'default' => array(
+          'label' => 'above',
+          'type' => 'list_default',
+          'settings' => array(),
+          'weight' => 5,
+        ),
+      ),
+      'required' => 1,
+      'description' => '',
+      'default_value' => NULL,
+      'field_name' => 'field_additional_type',
+      'entity_type' => 'field_collection_item',
+      'bundle' => 'field_additional',
+    );
+
+    return $instances;
+}

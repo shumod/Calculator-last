@@ -1,0 +1,22 @@
+.field-name-field-additional-name{
+	width: 520px;
+	float: left;
+}
+.field-name-field-additional-section{
+	width: 240px;
+    float: left;
+    height: 50px;
+}
+.field-name-field-additional-teaser, .field-name-field-additional-type{
+	width: 520px;
+	float: left;
+}
+.field-name-field-additional-type label{
+	white-space: normal;
+}
+.field-name-field-additional-foto{
+	clear: both;
+}
+.field-name-field-painting input{
+	float: left;
+}

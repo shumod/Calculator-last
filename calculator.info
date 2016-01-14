@@ -1,0 +1,13 @@
+name = Calculator
+description = Calcualtor for Metall City
+version = 7.x-1.0
+core = 7.x
+package = Custom
+
+files[] = calculator.install
+files[] = calculator.module
+stylesheets[all][] = css/calculator.css
+scripts[] = js/calculator.js
+scripts[] = js/jquery.form-validator.min.js
+
+dependencies[] = field_collection

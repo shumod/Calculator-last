@@ -1,0 +1,1078 @@
+<?php
+
+module_load_include('inc', 'calculator', 'calculator');
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function calculator_form_calculator_node_form_alter(&$form, &$form_state, $form_id) {
+
+  //если такие калькуляторы уже есть, то добавляем к списку опций ссылки на них
+  $form['field_calc_type']['und']['#options'] = _calculators_info($form['field_calc_type']['und']['#options']);
+
+  // title
+  $form['title']['#title'] = 'Заголовок'; 
+  $form['title']['#default_value'] = 'Настройки калькулятора';
+  $form['title']['#disabled'] = TRUE;
+
+  $form['addition'] = array(
+    '#type' => 'fieldset', 
+    '#title' => t('Опции (одинаковы для всех калькуляторов)'), 
+    '#weight' => 30, 
+    '#collapsible' => TRUE, 
+    '#collapsed' => FALSE,
+  );
+
+  $form['addition']['meter'] = array(
+    '#type' => 'textfield', 
+    '#title' => 'Дополнительная стоимость за монтаж',
+    '#default_value' => variable_get('cost_meter', 800), 
+    '#size' => 30, 
+    '#maxlength' => 128, 
+    '#required' => TRUE, 
+    '#field_suffix' => 'руб/м2',
+    '#suffix' => 'Если площадь откатных ворот больше 6 кв.м., то дополнительная стоимость за квадрат' 
+  );
+
+
+  $form['addition']['fair'] = array(
+    '#type' => 'textfield', 
+    '#title' => 'Стоимость за километр от МКАД попутным грузом',
+    '#default_value' => variable_get('delivery_fair', 100), 
+    '#size' => 30, 
+    '#maxlength' => 128, 
+    '#required' => TRUE, 
+    '#field_suffix' => 'руб/км'   
+  );
+
+  $form['addition']['taxi'] = array(
+    '#type' => 'textfield', 
+    '#title' => 'Стоимость за километр от МКАД отдельной машиной',
+    '#default_value' => variable_get('delivery_taxi', 100), 
+    '#size' => 30, 
+    '#maxlength' => 128, 
+    '#required' => TRUE, 
+    '#field_suffix' => 'руб/км'   
+  );
+  $form['addition']['gate_painting'] = array(
+    '#type' => 'textfield', 
+    '#title' => 'Стоимость росписи для ворот',
+    '#default_value' => variable_get('gate_painting', 10000), 
+    '#size' => 30, 
+    '#maxlength' => 128, 
+    '#required' => TRUE, 
+    '#field_suffix' => 'руб'   
+  );
+  $form['addition']['wicket_painting'] = array(
+    '#type' => 'textfield', 
+    '#title' => 'Стоимость росписи для калиток',
+    '#default_value' => variable_get('wicket_painting', 7000), 
+    '#size' => 30, 
+    '#maxlength' => 128, 
+    '#required' => TRUE, 
+    '#field_suffix' => 'руб'   
+  );
+
+  //добавляем css только к этой форме
+  $style_path = drupal_get_path('module','calculator') . '/css/calculator-node-edit.css';
+  $form['#attached']['css'][] = $style_path;
+
+
+  //убираем кнопку "удалить" с монтажа, чтобы не удалили, как в прошлый раз
+  $language = $form['field_additional']['#language'];
+  $eids_array = array(
+    60, 61, //это монтаж
+    57, 58, 59, //резка
+    );
+  foreach($form['field_additional'][$language] as $key => $additional){
+    if(isset($additional['#entity']->item_id)){
+      $eid = $additional['#entity']->item_id;
+      if(in_array($eid, $eids_array)){
+        unset($form['field_additional'][$language][$key]['remove_button']);
+      }
+    }
+  }
+
+  //сабмитим через нашу функцию, чтобы записать переменные
+  $form['#submit'][] = 'calculator_delivery_submit';
+
+}
+
+function calculator_form_alter(&$form, &$form_state, $form_id){
+  if($form_id == 'calculator_gate_form'){
+    $form['calculator']['select']['select-gate']['#after_build'][] = '_gate_options_build';
+    $form['calculator']['select']['select-wicket']['#after_build'][] = '_wicket_options_build';
+  }
+}
+
+function _gate_options_build($elements) {
+  foreach ($elements as $key => $element) {
+    if (!_string_begins_with('#', $key)) {
+      $element_array = explode('_', $key);
+      $elements[$key]['#attributes']['price'] = (int) $element_array[2];
+      $elements[$key]['#attributes']['aream'] = (float) $element_array[3];
+      $elements[$key]['#attributes']['tid'] = (int) $element_array[4];
+      $elements[$key]['#attributes']['paint'] = (int) $element_array[5];
+      $elements[$key]['#attributes']['cutting'] = (int) $element_array[6];
+    }
+  }
+  return $elements;
+}
+
+function _wicket_options_build($elements) {
+  foreach ($elements as $key => $element) {
+    if (!_string_begins_with('#', $key)) {
+      $element_array = explode('_', $key);
+      $elements[$key]['#attributes']['price'] = (int) $element_array[2];
+      $elements[$key]['#attributes']['aream'] = (float) $element_array[3];
+      $elements[$key]['#attributes']['tid'] = (int) $element_array[4];
+      $elements[$key]['#attributes']['paint'] = (int) $element_array[5];
+      $elements[$key]['#attributes']['cutting'] = (int) $element_array[6];
+    }
+  }
+  return $elements;
+}
+
+function _string_begins_with($needle, $haystack) {
+    return (substr($haystack, 0, strlen($needle)) == $needle);
+}
+
+/**
+ *  Добавляем в список калькуляторов ссылки на существующие калькуляторы
+ */
+function _calculators_info($options_list){
+
+  $options = array();
+
+  foreach ($options_list as $key => $value) {
+    $query = db_select('node', 'n');
+    $query->innerJoin('field_data_field_calc_type', 'ct', 'n.nid = ct.entity_id');
+    $query->fields('n', array('nid', 'created'));
+    $query->condition('ct.field_calc_type_value', $key);
+    $query->range(0, 1);
+    $query->orderBy('n.changed', 'DESC');
+    $query_array = $query->execute()->fetchAll();
+    $node = _get_settings_node($key);
+
+    if($node){
+      $options_list[$key] = $value.
+        ' (Для калькулятора созданы настройки от '.l(date('d-m-Y H:i', $node->created), 'node/'.$node->nid.'/edit').')';
+    }
+  }
+  return $options_list;
+}
+
+//при сохранении формы - сохраняем все значения
+function calculator_delivery_submit($form, &$form_state) {
+  variable_set('delivery_fair', $form_state['complete form']['addition']['fair']['#value']);
+  variable_set('delivery_taxi', $form_state['complete form']['addition']['taxi']['#value']);
+  variable_set('cost_meter', $form_state['complete form']['addition']['meter']['#value']);
+  variable_set('gate_painting', $form_state['complete form']['addition']['gate_painting']['#value']);
+  variable_set('wicket_painting', $form_state['complete form']['addition']['wicket_painting']['#value']);
+  $calculator_type = array(
+    'gateswing' => 'Ворота распашные',
+    'gateroll' => 'Ворота откатные',
+    'wicket' => 'Калитки',
+  );
+  $calculator_node = $form_state['values']['field_calc_type']['und'][0]['value'];
+  $form_state['values']['title'] = 'Настройки калькулятора (' . $calculator_type[$calculator_node] .')';
+}
+
+
+/**
+ * Implements hook_menu().
+ */
+ 
+function calculator_menu() {
+
+  $items = array();
+/*
+  $items['calculator/gate'] = array(
+    'type' => MENU_NORMAL_ITEM,
+    'title' => 'Калькулятор ворот и калиток',
+    'page callback' => 'calculator',
+    'access arguments' => array('access content'),
+    //'file' => 'calculator.inc',
+  );*/
+  $items['calculator/sendmail'] = array(
+    'type' => MENU_CALLBACK,
+    'page callback' => 'calculator_sendmail',
+    'access arguments' => array('access content'),
+    //'file' => 'calculator.inc',
+  );
+  $items['calculator/params'] = array(
+    'type' => MENU_CALLBACK,
+    'page callback' => 'calculator_params',
+    'access arguments' => array('access content'),
+  );
+
+  return $items;
+}
+
+function _get_settings_node($settings_type = ''){
+  if($settings_type != ''){
+    $query = db_select('node', 'n');
+    $query->innerJoin('field_data_field_calc_type', 'ct', 'n.nid = ct.entity_id');
+    $query->fields('n', array('nid', 'created'));
+    $query->condition('ct.field_calc_type_value', $settings_type);
+    $query->range(0, 1);
+    $query->orderBy('n.changed', 'DESC');
+    $query_array = $query->execute()->fetchAll();
+
+    if(isset($query_array[0])){
+      $node = node_load($query_array[0]->nid);
+      return $node;
+    }
+    else{
+      return FALSE;
+    }
+  }
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function calculator_block_info() {
+  $blocks['calc_block'] = array(
+    'info' => 'Калькулятор',
+  );
+  return $blocks;
+}
+ 
+/**
+ * Implements hook_block_view().
+ * Генерация заголовка блока и его контента.
+ */
+function calculator_block_view($delta = '') {
+  $block = array();
+ 
+  if ($delta == 'calc_block') {
+    $block['subject'] = 'Калькулятор';
+    $block['content'] = array(
+      '#markup' => calculator(),
+      '#attached' => array(
+        'css' => array(
+            drupal_get_path('module', 'calculator') . '/css/calculator.css',
+          ),
+        'js' => array(
+          drupal_get_path('module', 'calculator') . '/js/jquery.form-validator.min.js',
+          drupal_get_path('module', 'calculator') . '/js/calculator.js',
+          'misc/form.js',
+          'misc/collapse.js',
+        ),
+      ),
+    );
+  }
+ 
+  return $block;
+}
+
+
+
+//old calculator.inc
+
+function calculator(){
+  $output = drupal_render(drupal_get_form('calculator_gate_form'));
+  $output .= drupal_render(drupal_get_form('order_gate_form'));
+  return $output;
+}
+
+function calculator_sendmail(){
+  $send = drupal_mail('system', 'mail', $_POST['to'], language_default(), array(
+    'context' => array(
+      'subject' => 'Заказ на Металл Сити',
+      'message' => $_POST['message'],
+    )
+  ));
+  echo $send['send'];
+}
+
+// Настройки калькулятора для ворот!!!
+function calculator_gate_form($form, &$form_state) {
+  drupal_add_library('system', 'ui.accordion');
+  //только админ видит ссылку на редактирование калькулятора
+  global $user;
+  $access = (isset($user->roles[3])) ? TRUE : FALSE;
+  $is_user_login_rate = ($user->uid) ? 0.95 : 1.2;
+
+  $product_types = array(
+    'gateswing' => 'Распашные ворота', 
+    'gateroll' => 'Откатные ворота', 
+    'wicket' => 'Калитки',
+  ); //определяем типы товаров, чтобы с ними работать
+
+  $settings = array();
+  $settings_link = '';
+  foreach ($product_types as $key => $value) {
+    $settings[$key] = _get_settings_node($key); //получаем настройки для каждого типа, если они есть
+    if($settings[$key]){
+      $settings_link .= l('Редактировать настройки калькулятора(' . $value . ')', 
+                          'node/'.$settings[$key]->nid.'/edit') . '<br>';
+    }
+    else{
+      $settings_link .= 'Настроек для калькулятора ' . $value . ' не найдено. ' 
+                        . l('Добавить', 'node/add/calculator') . '<br>';
+    }
+  }
+
+  $settings_array = array();
+
+  //выводим скрытые поля, чтобы из них брать информацию для подсчётов
+  foreach ($settings as $key => $setting) {
+    //переменные настройки размеров
+    $settings_array[$key]['height'] = $setting->field_gate_height['und'][0]['value'];
+    $settings_array[$key]['width'] = $setting->field_gate_width['und'][0]['value'];
+    $settings_array[$key]['min_height'] = $setting->field_min_gate_height['und'][0]['value'];
+    $settings_array[$key]['max_height'] = $setting->field_max_gate_height['und'][0]['value'];
+    $settings_array[$key]['min_width'] = $setting->field_min_gate_width['und'][0]['value'];
+    $settings_array[$key]['max_width'] = $setting->field_max_gate_width['und'][0]['value'];
+    $settings_array[$key]['aperture_height'] = $setting->field_aperture_height['und'][0]['value'];
+    $settings_array[$key]['aperture_width'] = $setting->field_aperture_width['und'][0]['value'];    
+
+    //стандартные настройки, заносим их как элемент формы, чтобы они были доступны для скриптов
+    $form[$key . '_height'] = array('#type' => 'hidden', '#value' => $settings_array[$key]['height']);
+    $form[$key . '_width'] = array('#type' => 'hidden', '#value' => $settings_array[$key]['width']);
+    $form[$key . '_min_height'] = array('#type' => 'hidden', '#value' => $settings_array[$key]['min_height']);
+    $form[$key . '_max_height'] = array('#type' => 'hidden', '#value' => $settings_array[$key]['max_height']);
+    $form[$key . '_min_width'] = array('#type' => 'hidden', '#value' => $settings_array[$key]['min_width']);
+    $form[$key . '_max_width'] = array('#type' => 'hidden', '#value' => $settings_array[$key]['max_width']);
+    $form[$key . '_aperture_height'] = array('#type' => 'hidden', '#value' => $settings_array[$key]['aperture_height']);
+    $form[$key . '_aperture_width'] = array('#type' => 'hidden', '#value' => $settings_array[$key]['aperture_width']);
+  }
+
+  $form['is_user_login_rate'] = array('#type' => 'hidden', '#value' => $is_user_login_rate);
+
+  //ссылки на настройки для калькулятора
+  $form['settings'] = array(
+    '#access' => $access,
+    '#markup' => $settings_link,
+  );
+
+  $form['result'] = array(
+    '#markup' => '<div id="send-result"></div>',
+  );
+
+  //если мы находимся на странице товара, то выводим параметры товара
+  $form['products_params'] = array(
+    '#type' => 'hidden',
+    '#value' => _product_params(),
+  );
+  
+  //настройки доставки
+  $form['delivery_taxi'] = array('#type' => 'hidden', '#value' => variable_get('delivery_taxi'));
+  $form['delivery_fair'] = array('#type' => 'hidden', '#value' => variable_get('delivery_fair'));
+  $form['pickup'] = array('#type' => 'hidden', '#value' => 0);
+  $form['gate_cost_meter'] = array('#type' => 'hidden', '#value' => variable_get('cost_meter'));
+
+  //стоимость росписи для калиток и ворот
+  $form['wicket_painting'] = array('#type' => 'hidden', '#value' => variable_get('wicket_painting'));
+  $form['gate_painting'] = array('#type' => 'hidden', '#value' => variable_get('gate_painting'));
+
+  //оборачиваем форму в div, чтобы её полностью обновлять
+  $form['#prefix'] = '<div id = "form-calculator">';
+  $form['#suffix'] = '</div>';
+
+  $form['calculator'] = array(
+    '#type' => 'fieldset',
+    '#title' => 'Калькулятор ворот и калиток', 
+    '#collapsible' => FALSE, 
+    '#collapsed' => FALSE,
+  );
+
+
+  //выбираем тип ворот, чтобы подгрузить их на страницу калькулятора
+  $form['calculator']['select'] = array(
+    '#type' => 'fieldset',
+    '#title' => 'Выбор изделия', 
+    '#collapsible' => FALSE, 
+    '#collapsed' => FALSE,
+    '#prefix' => '<div class="select-type">',
+    '#suffix' => '</div>',
+  );
+  $options_type = array('gates' => 'Ворота', 'wicket' => 'Калитка', 'gates_wicket' => 'Ворота + калитка',);
+  $form['calculator']['select']['select-type'] = array(
+    '#title' => 'Выберите тип калькулятора',
+    '#type' => 'radios',
+    '#options' => $options_type,
+    '#required' => TRUE,
+    '#attributes' => array(
+      'data-validation' => 'required',
+      'data-validation-error-msg' => 'Обязательно выберите тип изделия',
+      ),
+  ); 
+  $options_gate = array('gateswing' => 'Распашные ворота', 'gateroll' => 'Откатные ворота');
+  $form['calculator']['select']['select-gate-type'] = array(
+    '#title' => 'Тип ворот',
+    '#type' => 'radios',
+    '#options' => $options_gate,
+    '#required' => TRUE,
+    '#attributes' => array(
+      'data-validation' => 'required',
+      'data-validation-error-msg' => 'Обязательно выберите тип изделия',
+      ),
+  );
+  $form['calculator']['select']['select-gate-type']['gateswing'] = array(
+      '#attributes' => array(
+        'width' => $settings_array['gateswing']['width'],
+        'height' => $settings_array['gateswing']['height'],
+      ),
+  );
+  $form['calculator']['select']['select-gate-type']['gateroll'] = array(
+      '#attributes' => array(
+        'width' => $settings_array['gateroll']['width'],
+        'height' => $settings_array['gateroll']['height'],
+      ),
+  );
+
+  //настройки для ворот
+  $form['calculator']['select']['width'] = array(
+    '#title' => 'Ширина ворот',
+    '#type' => 'textfield',
+    '#attributes' => array(
+      'data-validation' => 'number',
+      'data-validation-allowing' => 'range['.$settings_array["gateswing"]["min_width"].';'.$settings_array["gateswing"]["max_width"].']',
+      'data-validation-help' => 'Минимальная ширина: '.$settings_array["gateswing"]["min_width"].' см., максимальная ширина: '.$settings_array["gateswing"]["max_width"].' см.',
+      'data-validation-error-msg' => 'Введено некорректное число',
+    ),
+    '#default_value' => $settings_array["gateswing"]["width"],
+  );
+  $form['calculator']['select']['height'] = array(
+    '#title' => 'Высота ворот',
+    '#type' => 'textfield',
+    '#attributes' => array(
+      'data-validation' => 'number',
+      'data-validation-allowing' => 'range['.$settings_array["gateswing"]["min_height"].';'.$settings_array["gateswing"]["max_height"].']',
+      'data-validation-help' => 'Минимальная высота: '.$settings_array["gateswing"]["min_height"].' см., максимальная высота: '.$settings_array["gateswing"]["max_height"].' см.',
+      'data-validation-error-msg' => 'Введено некорректное число',
+
+    ),
+    '#default_value' => $settings_array['gateswing']['height'],
+  ); 
+  $form['calculator']['select']['select-gate'] = array(
+    '#title' => 'Ворота',
+    '#type' => 'radios',
+    '#options' => _get_products('gate'),
+    '#required' => TRUE,
+    '#attributes' => array(
+      'data-validation' => 'required',
+      'data-validation-error-msg' => 'Обязательно выберите изделие',
+      ),
+  );
+
+  //получаем список калиток
+  $form['calculator']['select']['wicket_width'] = array(
+    '#title' => 'Ширина калитки',
+    '#type' => 'textfield',
+    '#attributes' => array(
+      'data-validation' => 'number',
+      'data-validation-allowing' => 'range['.$settings_array["wicket"]["min_width"].';'.$settings_array["wicket"]["max_width"].']',
+      'data-validation-help' => 'Минимальная ширина: '.$settings_array["wicket"]["min_width"].' см., максимальная ширина: '.$settings_array["wicket"]["max_width"].' см.',
+      'data-validation-error-msg' => 'Введено некорректное число',
+    ),
+    '#default_value' => $settings_array['wicket']['width'],
+  );
+  $form['calculator']['select']['wicket_height'] = array(
+    '#title' => 'Высота калитки',
+    '#type' => 'textfield',
+    '#attributes' => array(
+      'data-validation' => 'number',
+      'data-validation-allowing' => 'range['.$settings_array["wicket"]["min_height"].';'.$settings_array["wicket"]["max_height"].']',
+      'data-validation-help' => 'Минимальная высота: '.$settings_array["wicket"]["min_height"].' см., максимальная высота: '.$settings_array["wicket"]["max_height"].' см.',
+      'data-validation-error-msg' => 'Введено некорректное число',
+    ),
+    '#default_value' => $settings_array['wicket']['height'],
+  );
+  $form['calculator']['select']['select-wicket'] = array(
+    '#title' => 'Калитки',
+    '#type' => 'radios',
+    '#options' => _get_products('wicket'),
+    '#required' => TRUE,
+    '#attributes' => array(
+      'data-validation' => 'required',
+      'data-validation-error-msg' => 'Обязательно выберите изделие',
+      ),
+  );
+
+  //ширина и высота ворот
+  $form['calculator']['gate'] = array(
+    '#type' => 'fieldset',
+    '#title' => 'Параметры ворот', 
+    '#collapsible' => FALSE, 
+    '#collapsed' => FALSE,
+  ); 
+
+  //ширина и высота калиток
+  $form['calculator']['wicket'] = array(
+    '#type' => 'fieldset',
+    '#title' => 'Параметры калиток', 
+    '#collapsible' => FALSE, 
+    '#collapsed' => FALSE,
+  ); 
+
+  //дополнительные элементы
+  $form['calculator']['select-elements'] = array(
+    '#type' => 'fieldset',
+    '#title' => 'Дополнительные опции', 
+    '#collapsible' => FALSE, 
+    '#collapsed' => FALSE,
+    '#attributes' => array(
+      'class' => array('collapsed')
+    ),
+  );  
+  $form['calculator']['select-elements']['additional-elements'] = array(
+    '#prefix' => '<div id = "additional-elements" class="elements">',
+    '#suffix' => '</div><div class="default-elements">Опций для данных настроек не найдено</div>',
+    '#markup' => _get_additional_elements($settings, 'additional', $product_types),
+  );
+
+  //настройки установки ворот
+  $form['calculator']['select-elements-3'] = array(
+    '#type' => 'fieldset',
+    '#title' => 'Установка', 
+    '#collapsible' => FALSE, 
+    '#collapsed' => FALSE,
+    '#attributes' => array(
+      'class' => array('collapsed')
+    ),
+  ); 
+  $form['calculator']['select-elements-3']['installation-elements'] = array(
+    '#prefix' => '<div id = "installation-elements" class="elements dnone">',
+    '#suffix' => '</div><div class="default-elements">Опций для данных настроек не найдено</div>',
+    '#markup' => _get_additional_elements($settings, 'installation', $product_types),
+  );
+
+  //автоматика
+  $form['calculator']['select-elements-2'] = array(
+    '#type' => 'fieldset',
+    '#title' => 'Автоматика', 
+    '#collapsible' => FALSE, 
+    '#collapsed' => FALSE,
+    '#attributes' => array(
+      'class' => array('collapsed')
+    ),
+  ); 
+  $form['calculator']['select-elements-2']['automatic-elements'] = array(
+    '#prefix' => '<div id = "automatic-elements" class="elements dnone">',
+    '#suffix' => '</div><div class="default-elements">Опций для данных настроек не найдено</div>',
+    '#markup' =>   _get_additional_elements($settings, 'automatic', $product_types),
+  );
+
+  //настройки других параметров ворот
+  $form['calculator']['select-elements-4'] = array(
+    '#type' => 'fieldset',
+    '#title' => 'Другие параметры', 
+    '#collapsible' => FALSE, 
+    '#collapsed' => FALSE,
+    '#attributes' => array(
+      'class' => array('collapsed')
+    ),
+  ); 
+  $form['calculator']['select-elements-4']['settings-elements'] = array(
+    '#prefix' => '<div id = "settings-elements" class="elements dnone">',
+    '#suffix' => '</div><div class="default-elements">Опций для данных настроек не найдено</div>',
+    '#markup' =>   _get_additional_elements($settings, 'settings', $product_types),
+  );
+
+  //доставка
+  $form['calculator']['delivery'] = array(
+    '#type' => 'fieldset',
+    '#title' => 'Выберите способ доставки', 
+    '#collapsible' => FALSE, 
+    '#collapsed' => FALSE,
+    '#attributes' => array(
+      'class' => array('collapsed')
+    ),
+  );
+  $delivery_type = array(
+    'delivery_fair' => 'Попутным грузом',
+    'delivery_taxi' => 'Отдельной машиной',
+    'pickup' => 'Самовывоз'
+  ); 
+  $form['calculator']['delivery']['delivery-type'] = array(
+    '#title' => 'Выберите способ доставки',
+    '#type' => 'radios',
+    '#options' => $delivery_type,
+  );
+  $form['calculator']['delivery']['kilometers'] = array(
+    '#title' => 'Сколько километров от МКАД?',
+    '#type' => 'textfield',
+    '#default_value' => 0,
+    '#attributes' => array(
+      'data-validation' => 'number',
+      'data-validation-help' => 'Выберите примерное расстояние от МКАД. Стоимость может быть уточнена администратором после проверки адреса.',
+      'data-validation-error-msg' => 'Введено некорректное число',
+    ),
+    //'#element_validate' => array('max_gate_width_validate'),
+  ); 
+  // Создаём в форме элемент страницы, в котором будут выводиться результаты подсчётов
+  $form['calculator']['markup'] = array(
+    '#prefix' => '<div id="total">Итого: <span id = "total-summ">',
+    '#suffix' => '</span><span> руб.</span></div>',
+    '#markup' => 0,
+  ); 
+
+  $form['calculator']['calculate'] = array(
+    '#type' => 'submit', 
+    '#value' => t('Посчитать'),   
+  );
+
+  $form['calculator']['generate-button'] = array(
+    '#type' => 'button', 
+    '#value' => t('Сформировать заказ'),   
+  );
+
+  return $form;
+
+}
+
+//функция для формы заказа
+function order_gate_form($form, &$form_state) {
+  $form = array();
+
+  //формируем заказ
+  $form['generate'] = array(
+    '#type' => 'fieldset',
+    '#title' => 'Оформление заказа', 
+    '#collapsible' => FALSE, 
+    '#collapsed' => FALSE,
+  );
+  $form['generate']['order-name'] = array(
+    '#title' => 'ФИО',
+    '#type' => 'textfield',
+    '#attributes' => array(
+      'data-validation' => 'required',
+      'data-validation-error-msg' => 'Напишите ваше ФИО',
+    )
+  );
+  $form['generate']['order-adress'] = array(
+    '#title' => 'Ваш адрес',
+    '#type' => 'textfield',
+    '#attributes' => array(
+      'data-validation' => 'required',
+      'data-validation-error-msg' => 'Напишите ваш адрес',
+    )
+  );
+  $form['generate']['order-telefone'] = array(
+    '#title' => 'Ваш номер телефона',
+    '#type' => 'textfield',
+    '#attributes' => array(
+      'data-validation' => 'required',
+      'data-validation-error-msg' => 'Напишите ваш номер телефона',
+    )
+  );
+  $form['generate']['order-email'] = array(
+    '#title' => 'E-mail',
+    '#type' => 'textfield',
+    '#attributes' => array(
+      'data-validation' => 'email',
+      'data-validation-error-msg' => 'Напишите ваш Е-mail',
+    )
+  );
+  $form['generate']['order-suggestion'] = array(
+    '#title' => 'Пожелания к заказу',
+    '#type' => 'textarea',
+    '#rows' => 5,
+    '#resizable' => FALSE,
+  );
+  $form['generate']['order-text'] = array(
+    '#title' => 'Ваш заказ',
+    '#type' => 'textarea',
+    '#rows' => 8,
+    '#disabled' => TRUE,
+    '#resizable' => FALSE,
+  );
+  $form['generate']['back-to-calculator'] = array(
+    '#type' => 'button', 
+    '#value' => t('Редактировать заказ'), 
+  );
+  $form['generate']['send-order'] = array(
+    '#type' => 'button', 
+    '#value' => t('Отправить заказ'),
+  );  
+
+  return $form;
+}
+
+function _send_order($form, &$form_state){
+  drupal_mail('system', 'mail', $form_state['values']['order-email'], language_default(), array(
+    'context' => array(
+      'subject' => 'Заказ на Металл Сити',
+      'message' => $form_state['values']['order-text'],
+    )
+  ));  
+  $commands[] = ajax_command_append('#order-sucess', 
+                  'Заказ отправлен! Мы свяжемся с вами в ближайшее время');
+  $commands[] = ajax_command_css('#edit-generate', array('display' => 'none'));
+  $elements['#type'] = 'ajax';
+  $elements['#commands'] = $commands;
+  return $elements;
+}
+
+/**
+ * Отдаёт товары
+ */
+function _get_products($product_type = 'gate', $amount = 10) {
+  $nodes = array();
+  $nids = array();
+  //получаем из БД все ворота с заданными параметрами
+  if($product_type == 'gate'){
+    $tids_gateswing = array(21, 18, 14, 16, 61);
+    $query = db_select('node', 'n');
+    $query->innerJoin('field_data_field_category', 'cat', 'n.nid = cat.entity_id');
+    $query->innerJoin('field_data_field_weight', 'w', 'n.nid = w.entity_id');
+    $query->fields('n', array('nid', 'title'));
+    $query->fields('cat', array('field_category_tid'));
+    $query->condition('cat.field_category_tid', $tids_gateswing, 'IN');
+    $query->orderBy('w.field_weight_value', 'ASC');
+    $gateswing = $query->execute()->fetchAll();
+    foreach ($gateswing as $node) {
+      $nids[] = $node->nid;
+      //$nodes['gateswing_'.$node->nid] = check_plain($node->title);
+    }
+
+    $nodes_display = node_load_multiple($nids);
+    $products = array();
+    foreach ($nodes_display as $key => $node) {
+      $category = field_get_items('node', $node, 'field_category')[0]['tid'];
+      $pr = field_get_items('node', $node, 'field_product');
+      $product = commerce_product_load($pr[0]['product_id']);
+
+      // получаем картинки для продуктов
+      $field_product_photo = field_get_items('commerce_product', $product, 'field_product_photo');
+      $photos = _get_product_photos($field_product_photo, $node->title, 'r'.$node->nid);
+
+      $painting = field_get_items('commerce_product', $product, 'field_painting');
+      if(isset($painting[0]['value'])){
+        $price = ($product->commerce_price['und'][0]['amount'] / 100) - variable_get('gate_painting');
+        $paint = 1;
+      }
+      else{
+        $price = $product->commerce_price['und'][0]['amount'] / 100;
+        $paint = 0;
+      }
+
+      //есть резьба или нет
+      $cutting_field = field_get_items('commerce_product', $product, 'field_cutting');
+      $cutting = 0;
+      if(isset($cutting_field[0]['value'])){
+        $cutting = 1;
+      }  
+
+      //получаем доп площадь и цену
+      $aream = $product->field_field_aream['und'][0]['value'];
+
+      //выводим товар, если есть все параметры
+      if($aream != '' && $aream != 0 && $price != '' && $price != 0){
+        $params = array('gateswing', $node->nid, $price, $aream, $category, $paint, $cutting);
+        $nodes[implode('_', $params)] = '<span class="product-name">'. check_plain($node->title) . '</span> ' . $photos;
+      }
+    }
+
+    $nids = array();
+    $tids_gateroll = array(17);
+    $query = db_select('node', 'n');
+    $query->innerJoin('field_data_field_category', 'cat', 'n.nid = cat.entity_id');
+    $query->innerJoin('field_data_field_weight', 'w', 'n.nid = w.entity_id');
+    $query->fields('n', array('nid', 'title'));
+    $query->fields('cat', array('field_category_tid'));
+    $query->condition('cat.field_category_tid', 17);
+    $query->orderBy('w.field_weight_value', 'ASC');
+    $gateroll = $query->execute()->fetchAll();
+    foreach ($gateroll as $node) {
+      $nids[] = $node->nid;
+      //$nodes['gateroll_'.$node->nid] = check_plain($node->title);
+    }
+    $nodes_display = node_load_multiple($nids);
+    $products = array();    
+    foreach ($nodes_display as $key => $node) {
+      $category = field_get_items('node', $node, 'field_category')[0]['tid'];
+      $pr = field_get_items('node', $node, 'field_product');
+      $product = commerce_product_load($pr[0]['product_id']);
+
+      // получаем картинки для продуктов
+      $field_product_photo = field_get_items('commerce_product', $product, 'field_product_photo');
+      $photos = _get_product_photos($field_product_photo, $node->title, 'r'.$node->nid);
+
+      $painting = field_get_items('commerce_product', $product, 'field_painting');
+      if(isset($painting[0]['value'])){
+        $price = ($product->commerce_price['und'][0]['amount'] / 100) - variable_get('gate_painting');
+        $paint = 1;
+      }
+      else{
+        $price = $product->commerce_price['und'][0]['amount'] / 100;
+        $paint = 0;
+      }
+
+      //есть резьба или нет
+      $cutting_field = field_get_items('commerce_product', $product, 'field_cutting');
+      $cutting = 0;
+      if(isset($cutting_field[0]['value'])){
+        $cutting = 1;
+      }  
+
+      //получаем доп площадь и цену
+      $aream = $product->field_field_aream['und'][0]['value'];
+
+      //выводим товар, если есть все параметры
+      if($aream != '' && $aream != 0 && $price != '' && $price != 0){
+        $params = array('gateroll', $node->nid, $price, $aream, $category, $paint, $cutting);
+        $nodes[implode('_', $params)] = '<span class="product-name">'. check_plain($node->title) . '</span> ' . $photos;
+      }
+    }
+  }
+
+  //получаем из БД все калитки с заданными параметрами
+  if($product_type == 'wicket'){
+    $tids_wicket = array(19);
+    $query = db_select('node', 'n');
+    $query->innerJoin('field_data_field_category', 'cat', 'n.nid = cat.entity_id');
+    $query->innerJoin('field_data_field_weight', 'w', 'n.nid = w.entity_id');
+    $query->fields('n', array('nid', 'title'));
+    $query->fields('cat', array('field_category_tid'));
+    $query->condition('cat.field_category_tid', $tids_wicket, 'IN');
+    $query->orderBy('w.field_weight_value', 'ASC');
+    $wicket = $query->execute()->fetchAll();
+    foreach ($wicket as $node) {
+      $nids[] = $node->nid;
+      //$nodes['wicket_'.$node->nid] = check_plain($node->title);
+    }
+
+    $nodes_display = node_load_multiple($nids);
+    $products = array();    
+    foreach ($nodes_display as $key => $node) {
+      $category = field_get_items('node', $node, 'field_category')[0]['tid'];
+      $pr = field_get_items('node', $node, 'field_product');
+      $product = commerce_product_load($pr[0]['product_id']);
+
+      // получаем картинки для продуктов
+      $field_product_photo = field_get_items('commerce_product', $product, 'field_product_photo');
+      $photos = _get_product_photos($field_product_photo, $node->title, 'r'.$node->nid);
+
+      $painting = field_get_items('commerce_product', $product, 'field_painting');
+      if(isset($painting[0]['value'])){
+        $price = ($product->commerce_price['und'][0]['amount'] / 100) - variable_get('wicket_painting');
+        $paint = 1;
+      }
+      else{
+        $price = $product->commerce_price['und'][0]['amount'] / 100;
+        $paint = 0;
+      }
+
+      //есть резьба или нет
+      $cutting_field = field_get_items('commerce_product', $product, 'field_cutting');
+      $cutting = 0;
+      if(isset($cutting_field[0]['value'])){
+        $cutting = 1;
+      }  
+
+      //получаем доп площадь и цену
+      $aream = $product->field_field_aream['und'][0]['value'];
+
+      //выводим товар, если есть все параметры
+      if($aream != '' && $aream != 0 && $price != '' && $price != 0){
+        $params = array('wicket', $node->nid, $price, $aream, $category, $paint, $cutting);
+        $nodes[implode('_', $params)] = '<span class="product-name">'. check_plain($node->title) . '</span> ' . $photos;
+      }
+    }
+  }  
+
+  /* Тестовые ноды
+  $nodes['gateswing_5'] = 'Тест1';
+  $nodes['gateroll_5'] = 'Тест2';
+  $nodes['wicket_13'] = 'Тест3';
+  $nodes['gateswing_55'] = 'Тест4';
+  $nodes['gateroll_54'] = 'Тест5';
+  $nodes['wicket_245'] = 'Тест6';
+  */
+  return $nodes;
+}
+
+function _get_product_photos($photos, $title = '', $rel){
+  $output = '';
+  $photos_count = sizeof($photos);
+  for ($i = 0; $i < $photos_count; $i++) {
+    
+    $options = array(
+      'html' => true,
+      'attributes' => array(
+        'class' => 'colorbox', //чтобы открывать в колорбоксе
+        'rel' => $rel,
+        'title' => $title,
+      ),
+    );
+    $link_image = file_create_url($photos[$i]['uri']);
+    $camera_link = '/' . drupal_get_path('module', 'calculator') . '/image/camera.png';
+    $camera_image = '<img src="'.$camera_link.'" class="camera-image" />';
+    if($i == 0){         
+      $output .= l($camera_image, $link_image, $options);
+    }
+    else{
+      $output .= l('', $link_image, $options);
+    }
+    
+  }
+  return $output;
+}
+
+/* 
+ * отдаёт таблицу с дополнительными элементами. 
+ * $product_types - используется для передачи типов продукта
+ */
+function _get_additional_elements($settings_array, $type, $product_types){
+  $output = '';
+  //для каждого массива настроек:
+  foreach ($settings_array as $settings_name => $settings) {
+    //получаем все id дополнительных элементов
+    $items = field_get_items('node', $settings, 'field_additional');
+    $additional = array();
+
+    //формируем таблицу для вывода элементов
+    $header = array(
+      array('data' => 'Название опции', 'class' => 'header-name'), 
+      array('data' => 'Цена, руб.', 'class' => 'header-price'),
+      array('data' => 'Заказать', 'class' => 'header-quantity'), 
+      //array('data' => 'Установка', 'class' => 'header-install'),
+    );
+    $rows = array();
+
+    $camera_link = '/' . drupal_get_path('module', 'calculator') . '/image/camera.png';
+    $camera_image = '<img src="'.$camera_link.'" class="camera-image" />';
+    //проходимся по всем доп опциям в ноде с настройками калькулятора
+    foreach ($items as $key => $item) {
+      $additional = field_collection_field_get_entity($item); //получаем entity с опциями
+      $description = '';
+
+      //проверяем тип дополнения. какой тип запрашивают?
+      if($additional->field_additional_section['und'][0]['value'] == $type){
+
+        //получаем ссылку на картинку и её описание
+        $options = array(
+          'html' => true,
+          'attributes' => array(
+            'class' => 'colorbox', //чтобы открывать в колорбоксе
+            'title' => (isset($additional->field_additional_teaser['und'])) ? $additional->field_additional_teaser['und'][0]['value'] : '', //описание к картинке
+          ),
+        );
+
+        //если картинка есть, то формируем ссылку на колорбокс с описанием
+        if (isset($additional->field_additional_foto['und'])) {
+          $link_image = file_create_url($additional->field_additional_foto['und'][0]['uri']);
+          $description = l($camera_image, $link_image, $options);      
+        }
+
+        //название доп элемента
+        $elementname = $additional->field_additional_name['und'][0]['value'];
+        //цена доп элемента
+        $elementprice = $additional->field_additional_price['und'][0]['value'];
+        //$elementprice = number_format($elementprice, 0, ',', ' ');
+
+        //выбираем либо это текстовое поле с количеством
+        if ($additional->field_additional_type['und'][0]['value'] == 'amount') {
+          $data = '<input type="textfield" value=0 price='.$elementprice.' id="add-field-'.$key.'" data-validation="number" data-validation-error-msg="Введено некорректное число" class="addition addition-'.$type.'" element-name="'.$elementname.'" />';
+        }
+        //либо галочка
+        elseif($additional->field_additional_type['und'][0]['value'] == 'presence'){
+          $data = '<input type="checkbox" value=0 price='.$elementprice.' id="add-field-'.$key.'" class="addition-checkbox addition-checkbox-'.$type.'" element-name="'.$elementname.'" />';
+        }
+
+        /* Установка
+        if(sizeof($additional->field_additional_install) > 0){
+          $installprice = $additional->field_additional_install['und'][0]['value'];
+          $install = '<input type="checkbox" value=0 installprice='.$installprice.' class="install-checkbox install-checkbox-'.$type.' add-field-'.$key.'"  />';
+        }
+        else{
+          $install = '-';
+        } */
+
+        //формируем строки таблицы
+        $rows[] = array(
+          'data' => array(
+            array('data' => $elementname . ' '.$description, 'class' => 'element-name'),
+            array('data' => number_format($elementprice, 0, ",", " "), 'class' => 'element-price'),
+            array('data' => $data, 'class' => 'element-data'),
+            //array('data' => $install, 'class' => 'element-install'),        
+          ),
+          'class' => array('element-' . $additional->item_id),
+        );
+      }
+    }
+
+    //отдаём таблицу, если в ней есть поля
+    $table = '<div id="as-'.$settings_name. '-' . $type .'">' .
+            '<div id="header-' . $type .'" class="additional-header">' . $product_types[$settings_name] . '</div>' .
+            theme('table', array('header' => $header, 'rows' => $rows)) .
+            '</div>';
+    $output .= (sizeof($rows) > 0) ?  $table  : '' ;
+  }
+  return $output;
+}
+
+
+/**
+ *  Получаем ноды в которых содержатся настройки текущих калькуляторов
+ */
+function _calculators_settings(){
+  $calculator_settings = array();
+  $options_list = array('gateroll', 'gateswing', 'wicket');
+
+  foreach ($options_list as $key => $value) {
+    $query = db_select('node', 'n');
+    $query->innerJoin('field_data_field_calc_type', 'ct', 'n.nid = ct.entity_id');
+    $query->fields('n', array('nid', 'created'));
+    $query->condition('ct.field_calc_type_value', $value);
+    $query->range(0, 1);
+    $query->orderBy('n.changed', 'DESC');
+    $query_array = $query->execute()->fetchAll();
+
+    if(isset($query_array[0])){
+      $calculator_settings[] = 1;
+    }
+  }
+  return $calculator_settings;
+}
+
+function _product_params(){
+  $params = 0;
+  $tids_gateswing = array(21, 18, 14, 16, 61);
+  $tids_gateroll = array(17);
+  $tids_wicket = array(19);
+  if(arg(0) == 'node' && is_numeric(arg(1))){
+    $node = node_load(arg(1));
+    $tid = $node->field_category['und'][0]['tid'];
+    if(in_array($tid, $tids_gateswing)){
+      $params = 'gateswing_' . $node->nid;
+    }
+    else if(in_array($tid, $tids_gateroll)){
+      $params = 'gateroll_' . $node->nid;
+    }
+    else if(in_array($tid, $tids_wicket)){
+      $params = 'wicket_' . $node->nid;
+    }
+  }
+  return $params;
+}
+
+//определяет страницу с которой пришли и отдаёт тип ворот или калитки
+function calculator_params(){
+  $url = $_POST['from'];
+  $path_array = explode('ru/', $url);
+  $path = drupal_lookup_path("source", $path_array[1]);
+  $node = menu_get_object("node", 1, $path);
+  $params = '';
+  if($node->type == 'product'){
+    $tids_gateswing = array(21, 18, 14, 16, 61);
+    $tids_gateroll = array(17);
+    $tids_wicket = array(19);    
+    $tid = $node->field_category['und'][0]['tid'];
+    if(in_array($tid, $tids_gateswing)){
+      $params = 'gateswing_' . $node->nid;
+    }
+    else if(in_array($tid, $tids_gateroll)){
+      $params = 'gateroll_' . $node->nid;
+    }
+    else if(in_array($tid, $tids_wicket)){
+      $params = 'wicket_' . $node->nid;
+    }
+  }
+  echo $params;
+}

@@ -1,0 +1,98 @@
+.form-item-kilometers, .form-item-select-gate, .form-item-select-gate-type, 
+.form-item-select-wicket, #edit-generate, 
+#edit-gate, #edit-wicket,
+#edit-generate-button,
+.form-item-width, .form-item-height,
+.form-item-wicket-width, .form-item-wicket-height,
+.elements
+{
+	display: none;
+}
+#form-calculator .form-error{
+	color: red!important;
+	border: 1px solid red;
+	padding: 5px;
+}
+
+#calculator-gate-form table{
+	width: 100%;
+}
+#calculator-gate-form table td, #calculator-gate-form table th{
+	padding: 5px;
+}
+#calculator-gate-form fieldset{
+	clear: both;
+}
+.element-name{
+	width: 55%;
+}
+.element-price, .element-data{
+	text-align: center;
+}
+.element-data input[type="textfield"]{
+	width: 40px;
+	text-align: center;
+}
+.header-price, .header-install, .element-install{
+	text-align: center;
+}
+.addition-checkbox{
+	width: 20px;
+	height: 20px;
+}
+#total{
+	font-size: 20px;
+	font-weight: bold;
+	padding: 10px 0;
+}
+.form-item-width, .form-item-height, .form-item-wicket-width, .form-item-wicket-height{
+	width: 45%;
+	padding: 10px;
+	float: left;
+}
+#edit-select{
+	clear: both;
+}
+.form-item-delivery-type, .form-item-kilometers{
+	width:300px;
+	float:left;
+}
+#edit-select-type, #edit-select-gate-type, .form-item-select-gate-type, .form-item-select-gate-type, .form-item-wicket-width{
+	clear: both;
+}
+.additional-header{
+	font-size: 20px;
+	font-weight: bold;
+	margin-top: 20px;
+}
+.header-name, .element-name{
+	width: 300px;
+}
+.header-price, .element-price{
+	width: 100px;
+}
+#edit-select-wicket, #edit-select-gate{
+	height: 160px;
+	overflow: auto;
+
+}
+#calculator-gate-form fieldset{
+	cursor: pointer;
+}
+.dnone{
+	display: none;
+}
+.dblock{
+	display: block !important;
+}
+.drow{
+	display: table-row;
+}
+.camera-image{
+	height: 20px;
+	position: relative;
+	top: 5px;
+}
+.form-item-select-gate label{
+	width: 430px;
+}
